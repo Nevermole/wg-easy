@@ -60,6 +60,7 @@ module.exports = class WireGuard {
         await Util.exec('iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT');
         await Util.exec('iptables -A FORWARD -i wg0 -j ACCEPT');
         await Util.exec('iptables -A FORWARD -o wg0 -j ACCEPT');
+        await Util.exec('iptables -A FORWARD -o wg0 -j ACCEPT');
         await this.__syncConfig();
 
         return config;
@@ -84,7 +85,16 @@ module.exports = class WireGuard {
 [Interface]
 PrivateKey = ${config.server.privateKey}
 Address = ${config.server.address}/24
-ListenPort = 51820`;
+ListenPort = 51820
+
+Table = 8002
+PostUp = ip rule add table 8002 suppress_prefixlength 0
+PostUp = ip rule add from ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 table 8002
+PreDown = ip rule del from ${WG_DEFAULT_ADDRESS.replace('x', '0')}/24 table 8002
+PreDown = ip rule del table 8002 suppress_prefixlength 0
+
+PostUp = iptables -I FORWARD -i %i ! -o %i -j REJECT
+PreDown = iptables -D FORWARD -i %i ! -o %i -j REJECT`;
 
     for (const [clientId, client] of Object.entries(config.clients)) {
       if (!client.enabled) continue;
@@ -94,8 +104,8 @@ ListenPort = 51820`;
 # Client: ${client.name} (${clientId})
 [Peer]
 PublicKey = ${client.publicKey}
-PresharedKey = ${client.preSharedKey}
-AllowedIPs = ${client.address}/32`;
+PresharedKey = ${client.preSharedKey}`
++ client.allowedAddress.length > 0 ? `AllowedIPs = ${client.allowedAddress}` : `AllowedIPs = ${client.address}/32`;
     }
 
     debug('Saving config...');
@@ -121,6 +131,7 @@ AllowedIPs = ${client.address}/32`;
       createdAt: new Date(client.createdAt),
       updatedAt: new Date(client.updatedAt),
       allowedIPs: client.allowedIPs,
+      allowedAddress: client.allowedAddress,
 
       persistentKeepalive: null,
       latestHandshakeAt: null,
